@@ -6,6 +6,7 @@
 #include "static_module.h"
 #include "dlr/loader.h"
 #include "rcp/patcher.h"
+#include "bench/bench.h"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,67 @@ static void demo_rcp(const char* patch_so_path) {
     (void)patch_handle;
 }
 
+// ── Benchmark demo ────────────────────────────────────────────────────────────
+
+static void demo_benchmark(const char* plugin_so, const char* plugin_large_so) {
+    separator("Benchmark — RCP vs DLR mechanism latency");
+
+    std::cout << "[Bench] RCP            — 1000 iterations...\n";
+    BenchResult rcp       = benchmark_rcp(1000);
+
+    std::cout << "[Bench] DLR  1 symbol  — 100  iterations...\n";
+    BenchResult dlr_small = benchmark_dlr(plugin_so, 100);
+
+    std::cout << "[Bench] DLR 1000 syms  — 50   iterations...\n";
+    BenchResult dlr_large = benchmark_dlr(plugin_large_so, 50);
+
+    print_bench_comparison(rcp, dlr_small, dlr_large);
+}
+
+// ── New-function demo ─────────────────────────────────────────────────────────
+
+static void demo_new_functions(const char* plugin_so, const char* plugin_v2_so) {
+    separator("New Functions Demo — DLR can add, RCP can only redirect");
+
+    // Try to find plugin_extra in V1
+    void* h1 = dlopen(plugin_so, RTLD_NOW | RTLD_LOCAL);
+    if (!h1) {
+        std::cerr << "[NewFn] dlopen V1 failed: " << dlerror() << "\n";
+        return;
+    }
+    void* extra_v1 = dlsym(h1, "plugin_extra");
+    std::cout << "[NewFn] V1 plugin_extra symbol: "
+              << (extra_v1 ? "FOUND" : "NOT FOUND") << "  (expected NOT FOUND)\n";
+    dlclose(h1);
+
+    // Load V2 and call both functions
+    void* h2 = dlopen(plugin_v2_so, RTLD_NOW | RTLD_LOCAL);
+    if (!h2) {
+        std::cerr << "[NewFn] dlopen V2 failed: " << dlerror() << "\n";
+        return;
+    }
+
+    auto compute_fn = reinterpret_cast<int(*)(int)>(dlsym(h2, "plugin_compute"));
+    auto extra_fn   = reinterpret_cast<int(*)(int,int)>(dlsym(h2, "plugin_extra"));
+
+    if (compute_fn)
+        std::cout << "[NewFn] V2 plugin_compute(5)  = " << compute_fn(5)
+                  << "  (expected 15 = 5*3)\n";
+    else
+        std::cerr << "[NewFn] V2 plugin_compute not found\n";
+
+    if (extra_fn)
+        std::cout << "[NewFn] V2 plugin_extra(3, 4) = " << extra_fn(3, 4)
+                  << "  (expected 13 = 3*3+4)\n";
+    else
+        std::cerr << "[NewFn] V2 plugin_extra not found\n";
+
+    dlclose(h2);
+
+    std::cout << "\n[NewFn] RCP cannot add new functions — it can only redirect existing\n"
+              << "        call sites. No `call plugin_extra` instruction exists in this binary.\n";
+}
+
 // ── DLR demo: hot-reload loop ─────────────────────────────────────────────────
 
 static void demo_dlr_loop(DLRLoader& loader) {
@@ -85,8 +147,10 @@ static void demo_dlr_loop(DLRLoader& loader) {
 
 int main(int argc, char* argv[]) {
     // Paths can be overridden via argv for out-of-tree builds.
-    const char* plugin_so     = (argc > 1) ? argv[1] : "./build/libplugin.so";
-    const char* patch_so      = (argc > 2) ? argv[2] : "./build/libpatch_plugin.so";
+    const char* plugin_so       = (argc > 1) ? argv[1] : "./build/libplugin.so";
+    const char* patch_so        = (argc > 2) ? argv[2] : "./build/libpatch_plugin.so";
+    const char* plugin_v2_so    = (argc > 3) ? argv[3] : "./build/libplugin_v2.so";
+    const char* plugin_large_so = (argc > 4) ? argv[4] : "./build/libplugin_large.so";
 
     separator("Hot-Reload Proof of Concept  (DLR + RCP)");
 
@@ -103,7 +167,13 @@ int main(int argc, char* argv[]) {
     // ── Phase 2: RCP — patch the statically linked function ───────────────
     demo_rcp(patch_so);
 
-    // ── Phase 3: combined loop ─────────────────────────────────────────────
+    // ── Phase 3: Benchmark ─────────────────────────────────────────────────
+    demo_benchmark(plugin_so, plugin_large_so);
+
+    // ── Phase 4: New-function demo ─────────────────────────────────────────
+    demo_new_functions(plugin_so, plugin_v2_so);
+
+    // ── Phase 5: combined loop ─────────────────────────────────────────────
     demo_dlr_loop(loader);
 
     return 0;

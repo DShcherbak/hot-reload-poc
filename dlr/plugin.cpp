@@ -7,5 +7,5 @@
 //   4. The running program detects the .so timestamp change and reloads.
 
 extern "C" int plugin_compute(int x) {
-    return x * 0;   // [V1] — edit this line, then rebuild the plugin
+    return x * 2;   // [V1] — edit this line, then rebuild the plugin
 }
