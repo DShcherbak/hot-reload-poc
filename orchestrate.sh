@@ -76,10 +76,7 @@ banner "Step 4 / 5 — RCP hot-reload: change patched_compute"
 step "Editing rcp/patch_plugin.cpp:  x*11  →  x*x + 1  (linear → quadratic)"
 sed -i 's/return x \* 11;/return x * x + 1;/' rcp/patch_plugin.cpp
 
-step "Rebuilding libpatch_plugin.so (hybrid RCP)..."
-./build.sh patch
-
-step "Rebuilding patch_snippet.bin (raw byte injection)..."
+step "Rebuilding patch_snippet.bin (compile -> objcopy .text -> raw bytes)..."
 ./build.sh raw
 
 info "Waiting for the running process to re-patch the trampoline..."
@@ -95,7 +92,7 @@ echo -e "\n${BOLD}Demo complete.${NC}"
 echo -e "  Full log:  ${BLUE}$LOG${NC}"
 echo ""
 echo "  Changes applied while PID $APP_PID ran without interruption:"
-echo "    DLR  — plugin_compute:   x*2  →  x*7   (libplugin.so swapped)"
-echo "    RCP  — patched_compute:  x*11 →  x*x+1 (trampoline rewritten in-place)"
+echo "    DLR  — plugin_compute:   x*2  →  x*7   (libplugin.so swapped via dlopen)"
+echo "    RCP  — patched_compute:  x*11 →  x*x+1 (raw bytes injected via mmap trampoline)"
 echo ""
 echo -e "${YELLOW}Source files restored to original state (run is repeatable).${NC}"

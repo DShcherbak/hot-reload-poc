@@ -12,10 +12,3 @@ extern "C" __attribute__((noinline)) int static_compute(int x) {
     return (int)b;
 }
 
-extern "C" __attribute__((noinline)) int static_compute_raw(int x) {
-    // [raw target] original: 4x + 3
-    // This will be patched via direct machine code injection (no .so).
-    volatile int a = x * 4;
-    volatile int b = (int)a + 3;
-    return (int)b;
-}

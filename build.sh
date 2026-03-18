@@ -3,9 +3,8 @@
 #
 # Usage:
 #   ./build.sh           — full configure + build
-#   ./build.sh plugin    — rebuild libplugin.so only      (DLR hot-reload demo)
-#   ./build.sh patch     — rebuild libpatch_plugin.so only (RCP hot-reload demo)
-#   ./build.sh raw       — compile patch_plugin.cpp to raw .bin  (RawInject demo)
+#   ./build.sh plugin    — rebuild libplugin.so only  (DLR hot-reload demo)
+#   ./build.sh raw       — compile patch_plugin.cpp to raw .bin  (RCP hot-reload demo)
 #   ./build.sh run       — full build then run
 
 set -euo pipefail
@@ -25,10 +24,6 @@ case "${1:-}" in
     plugin)
         cmake --build "$BUILD_DIR" --target plugin
         echo "DLR plugin rebuilt: $BUILD_DIR/libplugin.so"
-        ;;
-    patch)
-        cmake --build "$BUILD_DIR" --target patch_plugin
-        echo "RCP patch plugin rebuilt: $BUILD_DIR/libpatch_plugin.so"
         ;;
     raw)
         cmake --build "$BUILD_DIR" --target patch_raw

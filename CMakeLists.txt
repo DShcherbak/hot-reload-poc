@@ -55,16 +55,6 @@ set_target_properties(plugin_large PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
-# ── RCP patch plugin: libpatch_plugin.so ─────────────────────────────────────
-# Contains the replacement for static_compute, loaded via dlopen at runtime.
-add_library(patch_plugin SHARED
-    rcp/patch_plugin.cpp
-)
-set_target_properties(patch_plugin PROPERTIES
-    PREFIX "lib"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
-)
-
 # ── Raw machine code target: patch_snippet.bin ────────────────────────────────
 # Compiles patch_plugin.cpp to an object file, then extracts the raw .text
 # section bytes. RawInjector maps these bytes directly into executable memory
@@ -87,8 +77,6 @@ add_executable(hot_reload
     main.cpp
     static_module.cpp
     dlr/loader.cpp
-    rcp/patcher.cpp
-    rcp/rcp_reloader.cpp
     rcp/raw_injector.cpp
     bench/bench.cpp
 )
