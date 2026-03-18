@@ -6,6 +6,8 @@
 #include "static_module.h"
 #include "dlr/loader.h"
 #include "rcp/patcher.h"
+#include "rcp/rcp_reloader.h"
+#include "rcp/raw_injector.h"
 #include "bench/bench.h"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -16,45 +18,28 @@ static void separator(const char* title) {
               << "══════════════════════════════════════\n";
 }
 
-// ── RCP demo: load patch plugin and redirect static_compute ──────────────────
+// ── Raw injection demo ────────────────────────────────────────────────────────
 
-static void demo_rcp(const char* patch_so_path) {
-    separator("RCP Demo — Runtime Code Patching");
+static void demo_raw_inject(const char* patch_bin) {
+    separator("RCP Raw Injection Demo — no .so, no dynamic linker");
 
-    std::cout << "[RCP] Before patch: static_compute(5) = "
-              << static_compute(5) << "  (expected 11 = 5*2+1)\n";
+    std::cout << "[RawInject] Before patch: static_compute_raw(5) = "
+              << static_compute_raw(5)
+              << "  (4*5+3 = 23)\n";
 
-    // Load the shared library that contains the replacement function.
-    // The main binary was never designed to call this library — it is loaded
-    // purely to obtain the address of patched_compute.
-    void* patch_handle = dlopen(patch_so_path, RTLD_NOW | RTLD_LOCAL);
-    if (!patch_handle) {
-        std::cerr << "[RCP] dlopen patch plugin failed: " << dlerror() << "\n";
+    RawInjector raw_inj(reinterpret_cast<void*>(static_compute_raw), patch_bin);
+    if (!raw_inj.load_and_patch()) {
+        std::cout << "[RawInject] NOTE: run './build.sh raw' first to generate "
+                  << patch_bin << "\n";
         return;
     }
 
-    void* new_fn = dlsym(patch_handle, "patched_compute");
-    if (!new_fn) {
-        std::cerr << "[RCP] dlsym patched_compute failed: " << dlerror() << "\n";
-        dlclose(patch_handle);
-        return;
-    }
-
-    // Overwrite the first 12 bytes of static_compute with an absolute JMP.
-    // After this point every call to static_compute() — including direct calls
-    // already compiled into this binary — silently executes patched_compute().
-    if (!rcp_patch(reinterpret_cast<void*>(static_compute), new_fn)) {
-        std::cerr << "[RCP] Patching failed.\n";
-        dlclose(patch_handle);
-        return;
-    }
-
-    std::cout << "[RCP] After  patch: static_compute(5) = "
-              << static_compute(5) << "  (expected 25 = 5*5)\n";
-
-    // Keep patch_handle open — patched_compute must remain mapped in memory.
-    // In a real system you would store this handle for later dlclose().
-    (void)patch_handle;
+    std::cout << "[RawInject] After  patch: static_compute_raw(5) = "
+              << static_compute_raw(5) << "\n";
+    std::cout << "[RawInject] The replacement ran from mmap'd anonymous memory"
+              << " — no .so was opened\n";
+    std::cout << "[RawInject] Mechanism: compile -> objcopy (.text bytes)"
+              << " -> mmap(EXEC) -> memcpy -> trampoline\n";
 }
 
 // ── Benchmark demo ────────────────────────────────────────────────────────────
@@ -79,23 +64,15 @@ static void demo_benchmark(const char* plugin_so, const char* plugin_large_so) {
 static void demo_new_functions(const char* plugin_so, const char* plugin_v2_so) {
     separator("New Functions Demo — DLR can add, RCP can only redirect");
 
-    // Try to find plugin_extra in V1
     void* h1 = dlopen(plugin_so, RTLD_NOW | RTLD_LOCAL);
-    if (!h1) {
-        std::cerr << "[NewFn] dlopen V1 failed: " << dlerror() << "\n";
-        return;
-    }
+    if (!h1) { std::cerr << "[NewFn] dlopen V1 failed: " << dlerror() << "\n"; return; }
     void* extra_v1 = dlsym(h1, "plugin_extra");
     std::cout << "[NewFn] V1 plugin_extra symbol: "
               << (extra_v1 ? "FOUND" : "NOT FOUND") << "  (expected NOT FOUND)\n";
     dlclose(h1);
 
-    // Load V2 and call both functions
     void* h2 = dlopen(plugin_v2_so, RTLD_NOW | RTLD_LOCAL);
-    if (!h2) {
-        std::cerr << "[NewFn] dlopen V2 failed: " << dlerror() << "\n";
-        return;
-    }
+    if (!h2) { std::cerr << "[NewFn] dlopen V2 failed: " << dlerror() << "\n"; return; }
 
     auto compute_fn = reinterpret_cast<int(*)(int)>(dlsym(h2, "plugin_compute"));
     auto extra_fn   = reinterpret_cast<int(*)(int,int)>(dlsym(h2, "plugin_extra"));
@@ -103,14 +80,9 @@ static void demo_new_functions(const char* plugin_so, const char* plugin_v2_so) 
     if (compute_fn)
         std::cout << "[NewFn] V2 plugin_compute(5)  = " << compute_fn(5)
                   << "  (expected 15 = 5*3)\n";
-    else
-        std::cerr << "[NewFn] V2 plugin_compute not found\n";
-
     if (extra_fn)
         std::cout << "[NewFn] V2 plugin_extra(3, 4) = " << extra_fn(3, 4)
                   << "  (expected 13 = 3*3+4)\n";
-    else
-        std::cerr << "[NewFn] V2 plugin_extra not found\n";
 
     dlclose(h2);
 
@@ -118,19 +90,22 @@ static void demo_new_functions(const char* plugin_so, const char* plugin_v2_so) 
               << "        call sites. No `call plugin_extra` instruction exists in this binary.\n";
 }
 
-// ── DLR demo: hot-reload loop ─────────────────────────────────────────────────
+// ── Combined hot-reload loop ───────────────────────────────────────────────────
 
-static void demo_dlr_loop(DLRLoader& loader) {
-    separator("DLR Loop — edit dlr/plugin.cpp, then run: cmake --build build --target plugin");
+static void demo_loop(DLRLoader& dlr, RCPReloader& rcp_rel) {
+    separator("Hot-Reload Loop\n"
+              "  DLR: edit dlr/plugin.cpp       -> cmake --build build --target plugin\n"
+              "  RCP: edit rcp/patch_plugin.cpp -> cmake --build build --target patch_plugin");
 
     int i = 0;
     while (true) {
-        bool reloaded = loader.reload_if_changed();
-        if (reloaded)
+        if (dlr.reload_if_changed())
             std::cout << "[DLR] New plugin loaded!\n";
 
-        auto fn = loader.get_fn();
+        if (rcp_rel.repatch_if_changed())
+            std::cout << "[RCP] Trampoline updated — static_compute now calls new implementation!\n";
 
+        auto fn = dlr.get_fn();
         std::cout << "  [DLR] plugin_compute(" << i << ") = ";
         if (fn) std::cout << fn(i);
         else    std::cout << "<not loaded>";
@@ -146,35 +121,44 @@ static void demo_dlr_loop(DLRLoader& loader) {
 // ── entry point ───────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
-    // Paths can be overridden via argv for out-of-tree builds.
     const char* plugin_so       = (argc > 1) ? argv[1] : "./build/libplugin.so";
     const char* patch_so        = (argc > 2) ? argv[2] : "./build/libpatch_plugin.so";
     const char* plugin_v2_so    = (argc > 3) ? argv[3] : "./build/libplugin_v2.so";
     const char* plugin_large_so = (argc > 4) ? argv[4] : "./build/libplugin_large.so";
+    const char* patch_bin       = (argc > 5) ? argv[5] : "./build/patch_snippet.bin";
 
     separator("Hot-Reload Proof of Concept  (DLR + RCP)");
 
-    // ── Phase 1: DLR — load the plugin library ────────────────────────────
+    // ── Phase 1: DLR initial load ─────────────────────────────────────────
     separator("DLR Demo — Dynamic Library Reload");
     DLRLoader loader(plugin_so);
-    if (!loader.load())
-        return 1;
+    if (!loader.load()) return 1;
+    std::cout << "[DLR] Initial call: plugin_compute(5) = " << loader.get_fn()(5) << "\n";
 
-    auto fn = loader.get_fn();
-    std::cout << "[DLR] Initial call: plugin_compute(5) = " << fn(5)
-              << "  (expected 15 = 5+10)\n";
+    // ── Phase 2: RCP initial patch ────────────────────────────────────────
+    separator("RCP Demo — Runtime Code Patching");
+    std::cout << "[RCP] Before patch: static_compute(5) = " << static_compute(5)
+              << "  (2*5+1 = 11)\n";
 
-    // ── Phase 2: RCP — patch the statically linked function ───────────────
-    demo_rcp(patch_so);
+    // RCPReloader owns the dlopen handle and re-patches whenever patch_plugin.so changes.
+    RCPReloader rcp_reloader(reinterpret_cast<void*>(static_compute),
+                             patch_so, "patched_compute");
+    if (!rcp_reloader.load_and_patch()) return 1;
 
-    // ── Phase 3: Benchmark ─────────────────────────────────────────────────
+    std::cout << "[RCP] After  patch: static_compute(5) = " << static_compute(5)
+              << "  (patched)\n";
+
+    // ── Phase 2.5: Raw injection demo ─────────────────────────────────────
+    demo_raw_inject(patch_bin);
+
+    // ── Phase 3: Benchmark ────────────────────────────────────────────────
     demo_benchmark(plugin_so, plugin_large_so);
 
-    // ── Phase 4: New-function demo ─────────────────────────────────────────
+    // ── Phase 4: New-function demo ────────────────────────────────────────
     demo_new_functions(plugin_so, plugin_v2_so);
 
-    // ── Phase 5: combined loop ─────────────────────────────────────────────
-    demo_dlr_loop(loader);
+    // ── Phase 5: Live hot-reload loop (both DLR and RCP) ──────────────────
+    demo_loop(loader, rcp_reloader);
 
     return 0;
 }

@@ -8,3 +8,6 @@
 // __attribute__((noinline)) is critical: without it the compiler may inline
 // the call site, making function-level patching impossible.
 extern "C" __attribute__((noinline)) int static_compute(int x);
+
+// Dedicated target for the raw-injection demo (no .so involved).
+extern "C" __attribute__((noinline)) int static_compute_raw(int x);

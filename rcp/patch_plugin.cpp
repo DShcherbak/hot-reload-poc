@@ -8,5 +8,5 @@
 // linked code, while DLR provides the new implementation at runtime.
 
 extern "C" int patched_compute(int x) {
-    return x * x;   // [V2] quadratic — replaces the linear static_compute
+    return x * 11;   // [V2] quadratic — replaces the linear static_compute
 }

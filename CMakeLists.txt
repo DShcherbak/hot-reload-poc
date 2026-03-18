@@ -65,12 +65,31 @@ set_target_properties(patch_plugin PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
+# ── Raw machine code target: patch_snippet.bin ────────────────────────────────
+# Compiles patch_plugin.cpp to an object file, then extracts the raw .text
+# section bytes. RawInjector maps these bytes directly into executable memory
+# without involving the dynamic linker at all.
+add_custom_target(patch_raw
+    COMMAND ${CMAKE_CXX_COMPILER}
+            -O0 -fPIC -std=c++17
+            -c ${CMAKE_SOURCE_DIR}/rcp/patch_plugin.cpp
+            -o ${CMAKE_BINARY_DIR}/patch_snippet.o
+    COMMAND objcopy -O binary --only-section=.text
+            ${CMAKE_BINARY_DIR}/patch_snippet.o
+            ${CMAKE_BINARY_DIR}/patch_snippet.bin
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Extracting raw machine code from patch_plugin.cpp -> patch_snippet.bin"
+    VERBATIM
+)
+
 # ── Main executable ───────────────────────────────────────────────────────────
 add_executable(hot_reload
     main.cpp
     static_module.cpp
     dlr/loader.cpp
     rcp/patcher.cpp
+    rcp/rcp_reloader.cpp
+    rcp/raw_injector.cpp
     bench/bench.cpp
 )
 target_include_directories(hot_reload PRIVATE "${CMAKE_SOURCE_DIR}")
