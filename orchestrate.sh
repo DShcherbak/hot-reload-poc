@@ -40,6 +40,7 @@ show_log() {
 banner "Step 1 / 5 — Full build"
 ./build.sh
 cmake --build "$BUILD_DIR" --target patch_raw 2>&1 | tail -2
+cmake --build "$BUILD_DIR" --target sort_raw  2>&1 | tail -2
 
 # ── Step 2: launch ────────────────────────────────────────────────────────────
 banner "Step 2 / 5 — Launch hot_reload"

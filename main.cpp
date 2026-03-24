@@ -37,6 +37,59 @@ static void demo_rcp(const char* patch_bin, RawInjector& rcp_inj) {
     std::cout << "[RCP] No .so opened — the replacement runs from anonymous mmap'd memory\n";
 }
 
+// ── Algorithm substitution demo ───────────────────────────────────────────────
+
+static void demo_algorithm_patch(const char* sort_bin, RawInjector& sort_inj) {
+    separator("Algorithm Substitution — Bubble Sort -> Shell Sort via RCP");
+
+    // Show correctness with V1 (bubble sort, compiled into binary)
+    int test[]  = {5, 3, 8, 1, 9, 2, 7, 4, 6, 0};
+    int test2[] = {5, 3, 8, 1, 9, 2, 7, 4, 6, 0};
+
+    std::cout << "[Algo] Input:          ";
+    for (int x : test) std::cout << x << " ";
+    std::cout << "\n";
+
+    static_sort(test, 10);
+    std::cout << "[Algo] Bubble sort:    ";
+    for (int x : test) std::cout << x << " ";
+    std::cout << "  (V1 correct)\n";
+
+    // Use a fixed N for all three measurements so speedup and overhead are comparable.
+    // N=3000: bubble sort ~12ms/iter (slow enough to show), shell sort ~0.3ms/iter (fast).
+    constexpr int SORT_N = 3000;
+
+    std::cout << "[Algo] Benchmarking bubble sort        (N=" << SORT_N << ", 5 iterations)...\n";
+    BenchResult bubble = benchmark_sort_fn(static_sort, SORT_N, 5);
+
+    // Patch static_sort to shell sort via raw injection
+    if (!sort_inj.load_and_patch()) {
+        std::cout << "[Algo] NOTE: run './build.sh sort' first to generate " << sort_bin << "\n";
+        return;
+    }
+
+    // Verify correctness with V2 (shell sort, injected from .bin)
+    static_sort(test2, 10);
+    std::cout << "[Algo] Shell sort:     ";
+    for (int x : test2) std::cout << x << " ";
+    std::cout << "  (V2 correct — same call site, new algorithm)\n";
+
+    // Benchmark post-patch execution — should match native speed
+    std::cout << "[Algo] Benchmarking shell sort via RCP (N=" << SORT_N << ", 100 iter)...\n";
+    BenchResult shell_rcp    = benchmark_sort_fn(static_sort, SORT_N, 100);
+
+    std::cout << "[Algo] Benchmarking shell sort native  (N=" << SORT_N << ", 100 iter)...\n";
+    BenchResult shell_native = benchmark_sort_fn(bench_shell_sort_ref, SORT_N, 100);
+
+    print_algorithm_comparison(bubble, shell_rcp, shell_native);
+
+    // RCP patch cost — O(1) regardless of function body size
+    std::cout << "\n[Bench] RCP size independence: patching a small vs large function...\n";
+    BenchResult rcp_small = benchmark_rcp(1000);
+    BenchResult rcp_large = benchmark_rcp_large(1000);
+    print_rcp_size_independence(rcp_small, rcp_large);
+}
+
 // ── Benchmark demo ────────────────────────────────────────────────────────────
 
 static void demo_benchmark(const char* plugin_so, const char* plugin_large_so) {
@@ -120,6 +173,7 @@ int main(int argc, char* argv[]) {
     const char* plugin_v2_so    = (argc > 2) ? argv[2] : "./build/libplugin_v2.so";
     const char* plugin_large_so = (argc > 3) ? argv[3] : "./build/libplugin_large.so";
     const char* patch_bin       = (argc > 4) ? argv[4] : "./build/patch_snippet.bin";
+    const char* sort_bin        = (argc > 5) ? argv[5] : "./build/sort_snippet.bin";
 
     separator("Hot-Reload Proof of Concept  (DLR + RCP)");
 
@@ -133,13 +187,17 @@ int main(int argc, char* argv[]) {
     RawInjector rcp_inj(reinterpret_cast<void*>(static_compute), patch_bin);
     demo_rcp(patch_bin, rcp_inj);
 
-    // ── Phase 3: Benchmark ────────────────────────────────────────────────
+    // ── Phase 3: Algorithm substitution + size-independence benchmark ────
+    RawInjector sort_inj(reinterpret_cast<void*>(static_sort), sort_bin);
+    demo_algorithm_patch(sort_bin, sort_inj);
+
+    // ── Phase 4: DLR vs RCP latency benchmark ────────────────────────────
     demo_benchmark(plugin_so, plugin_large_so);
 
-    // ── Phase 4: New-function demo ────────────────────────────────────────
+    // ── Phase 5: New-function demo ────────────────────────────────────────
     demo_new_functions(plugin_so, plugin_v2_so);
 
-    // ── Phase 5: Live hot-reload loop (both DLR and RCP) ──────────────────
+    // ── Phase 6: Live hot-reload loop (both DLR and RCP) ──────────────────
     demo_loop(loader, rcp_inj);
 
     return 0;

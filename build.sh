@@ -3,8 +3,9 @@
 #
 # Usage:
 #   ./build.sh           — full configure + build
-#   ./build.sh plugin    — rebuild libplugin.so only  (DLR hot-reload demo)
-#   ./build.sh raw       — compile patch_plugin.cpp to raw .bin  (RCP hot-reload demo)
+#   ./build.sh plugin    — rebuild libplugin.so only          (DLR hot-reload demo)
+#   ./build.sh raw       — compile patch_plugin.cpp -> .bin   (RCP arithmetic demo)
+#   ./build.sh sort      — compile sort_plugin.cpp  -> .bin   (RCP algorithm demo)
 #   ./build.sh run       — full build then run
 
 set -euo pipefail
@@ -28,6 +29,10 @@ case "${1:-}" in
     raw)
         cmake --build "$BUILD_DIR" --target patch_raw
         echo "Raw machine code: $BUILD_DIR/patch_snippet.bin"
+        ;;
+    sort)
+        cmake --build "$BUILD_DIR" --target sort_raw
+        echo "Raw machine code: $BUILD_DIR/sort_snippet.bin"
         ;;
     run)
         full_build

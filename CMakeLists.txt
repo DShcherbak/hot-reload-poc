@@ -55,10 +55,11 @@ set_target_properties(plugin_large PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
-# ── Raw machine code target: patch_snippet.bin ────────────────────────────────
-# Compiles patch_plugin.cpp to an object file, then extracts the raw .text
+# ── Raw machine code targets ──────────────────────────────────────────────────
+# Each target compiles a source file to an object, then extracts the raw .text
 # section bytes. RawInjector maps these bytes directly into executable memory
 # without involving the dynamic linker at all.
+
 add_custom_target(patch_raw
     COMMAND ${CMAKE_CXX_COMPILER}
             -O0 -fPIC -std=c++17
@@ -69,6 +70,20 @@ add_custom_target(patch_raw
             ${CMAKE_BINARY_DIR}/patch_snippet.bin
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Extracting raw machine code from patch_plugin.cpp -> patch_snippet.bin"
+    VERBATIM
+)
+
+# sort_snippet.bin — shell sort replacement for the algorithm demo
+add_custom_target(sort_raw
+    COMMAND ${CMAKE_CXX_COMPILER}
+            -O0 -fPIC -std=c++17
+            -c ${CMAKE_SOURCE_DIR}/rcp/sort_plugin.cpp
+            -o ${CMAKE_BINARY_DIR}/sort_snippet.o
+    COMMAND objcopy -O binary --only-section=.text
+            ${CMAKE_BINARY_DIR}/sort_snippet.o
+            ${CMAKE_BINARY_DIR}/sort_snippet.bin
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Extracting raw machine code from sort_plugin.cpp -> sort_snippet.bin"
     VERBATIM
 )
 
